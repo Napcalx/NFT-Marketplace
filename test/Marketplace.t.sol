@@ -16,11 +16,11 @@ contract MarketPlaceTest is Helpers {
 
     uint256 privKey1;
     uint256 privKey2;
-    
+
     Marketplace.Order O;
 
     function setUp() public {
-        mPlace = newMarketplace();
+        mPlace = new Marketplace();
         nft = new Tauri();
 
         (user1, privKey1) = makeaddr("USER1");
@@ -43,13 +43,13 @@ contract MarketPlaceTest is Helpers {
         switchSigner(user2);
 
         vm.expectRevert(Marketplace.NotOwner.selector);
-        mPlace.createOrder(1);
+        mPlace.createOrder(O);
     }
 
     function testNonApprovedNFT() public {
         switchSigner(user1);
         vm.expectRevert(Marketplace.NotApproved.selector);
-        mPlace.createOrder(1);
+        mPlace.createOrder(O);
     }
 
     function testMinPriceTooLow() public {
@@ -57,23 +57,22 @@ contract MarketPlaceTest is Helpers {
         nft.setApprovalForAll(address(mPlace), true);
         O.price = 0;
         vm.expectRevert(Marketplace.MinPriceTooLow.selector);
-        mPlace.createOrder(1);
+        mPlace.createOrder(O);
     }
 
-    function testMinDeadline() public {
+    function testDeadlineTooSoon() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
-        O.deadline = uint88(deadline > block.timestamp);
-        vm.expectRevert(Marketplace.MinDeadline.selector);
-        mPlace.createOrder(1);
+        vm.expectRevert(Marketplace.DeadlineTooSoon.selector);
+        mPlace.createOrder(O);
     }
 
     function testMinDuration() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
         O.deadline = uint88(block.timestamp + 59 minutes);
-        vm.expectRevert(Marketplace.MinDuration.selector);
-        mPlace.createOrder(1);
+        vm.expectRevert(Marketplace.MinDurationNotMet.selector);
+        mPlace.createOrder(O);
     }
 
     function testValidSig() public {
@@ -89,7 +88,7 @@ contract MarketPlaceTest is Helpers {
             privKey2
         );
         vm.expectRevert(Marketplace.InvalidSignature.selector);
-        mPlace.createOrder(l);
+        mPlace.createOrder(O);
     }
 
     function testEditNonValidOrder() public {
@@ -107,10 +106,10 @@ contract MarketPlaceTest is Helpers {
             O.tokenId,
             O.price,
             O.deadline,
-            O.lister,
+            O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
 
         switchSigner(user2);
         vm.expectRevert(Marketplace.NotOwner.selector);
@@ -129,7 +128,7 @@ contract MarketPlaceTest is Helpers {
             O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
         mPlace.editOrder(OId, 0.01 ether, false);
 
         Marketplace.Order memory k = mPlace.getOrder(OId);
@@ -148,7 +147,7 @@ contract MarketPlaceTest is Helpers {
         nft.setApprovalForAll(address(mPlace), true);
     }
 
-    function testExecuteOrderNotActive () public {
+    function testExecuteOrderNotActive() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
         O.deadline = uint88(block.timestamp + 120 minutes);
@@ -160,14 +159,14 @@ contract MarketPlaceTest is Helpers {
             O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
         mPlace.editOrder(OId, 0.01 ether, false);
         switchSigner(user2);
         vm.expectRevert(Marketplace.OrderNotActive.selector);
         mPlace.executeOrder(OId);
     }
 
-    function testExecutePriceNotMet () public {
+    function testExecutePriceNotMet() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
         O.deadline = uint88(block.timestamp + 120 minutes);
@@ -179,7 +178,7 @@ contract MarketPlaceTest is Helpers {
             O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
         switchSigner(user2);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -190,7 +189,7 @@ contract MarketPlaceTest is Helpers {
         mPlace.executeOrder{value: 0.9 ether}(OId);
     }
 
-    function testExecutePriceMistMatch () public {
+    function testExecutePriceMistMatch() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
         O.deadline = uint88(block.timestamp + 120 minutes);
@@ -202,7 +201,7 @@ contract MarketPlaceTest is Helpers {
             O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
         switchSigner(user2);
         vm.expectRevert(
             abi.encodeWithSelector(Marketplace.PriceMisMatch.selector, O.price)
@@ -210,7 +209,7 @@ contract MarketPlaceTest is Helpers {
         mPlace.executeOrder{value: 1.1 ether}(OId);
     }
 
-    function testExecute () public {
+    function testExecute() public {
         switchSigner(user1);
         nft.setApprovalForAll(address(mPlace), true);
         O.deadline = uint88(block.timestamp + 120 minutes);
@@ -222,11 +221,11 @@ contract MarketPlaceTest is Helpers {
             O.seller,
             privKey1
         );
-        uint256 OId = mPlace.createOrder(l);
+        uint256 OId = mPlace.createOrder(O);
         switchSigner(user2);
         uint256 user1BalanceBefore = user1.balance;
 
-        mPlace.executeOrder{value: l.price}(OId);
+        mPlace.executeOrder{value: O.price}(OId);
 
         uint256 user1BalanceAfter = user1.balance;
 
@@ -234,7 +233,7 @@ contract MarketPlaceTest is Helpers {
         assertEq(k.price, 1 ether);
         assertEq(k.active, false);
 
-        assertEq(t.active, false);
+        assertEq(k.active, false);
         assertEq(ERC721(O.token).ownerOf(O.tokenId), user2);
         assertEq(user1BalanceAfter, user1BalanceBefore + O.price);
     }
